@@ -1,5 +1,4 @@
 import numpy as np
-
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
@@ -15,14 +14,10 @@ g = 9.81
 l = 1
 
 # These are the eigenvalues we want the system to have (multiplied by -1).
-# e1 = 3/2
-# e2 = 3/4
-# e3 = 1/2
-# e4 = 1
-e1 = 3
-e2 = 4
-e3 = 1
-e4 = 2
+e1 = 4
+e2 = 3
+e3 = 2
+e4 = 1
 t_span = (0, 5)
 
 # The a and b constants defined in the article.
@@ -52,7 +47,7 @@ qs[2] = A @ B
 qs[1] = (A @ A) @ B - b * B
 qs[0] = (A @ A @ A) @ B - b * (A @ B)
 
-# Convert from column major to row major.
+# Create the matrices for the similarity transformation.
 T_inv = np.transpose(np.array([qs[0], qs[1], qs[2], qs[3]]))
 T = np.linalg.inv(T_inv)
 
@@ -85,9 +80,11 @@ A_controlled = T_inv @ (A_canon + np.outer(B_canon, F_canon)) @ T
 print(f"The stabilised system matrix is \n{A_controlled}")
 print(f"with eigenvalues {np.linalg.eigvals(A_controlled)}")
 
+# Evaluates the system
 def dynamics(t, x):
     return A_controlled @ x
 
+# Solve the system using Scipy.
 t_eval = np.linspace(*t_span, 500)
 sol = solve_ivp(dynamics, t_span, x0, t_eval = t_eval)
 
@@ -95,14 +92,14 @@ plt.figure(figsize = (10, 6))
 plt.plot(sol.t, sol.y.T)
 plt.xlabel("Time (s)")
 plt.ylabel("States")
-plt.legend(["x (cart position)", "$\\dot{x}$ (cart velocity)", "$\\theta$ (angle)", "$\\dot{\\theta}}$ (angular velocity)"])
+plt.legend(["x (cart position)", "$\\frac{dx}{dt}$ (cart velocity)", "$\\theta$ (angle)", "$\\frac{d\\theta}{dt}$ (angular velocity)"])
 
 cart_width = 0.5
 cart_height = 0.3
 
-# fig, ax = plt.subplots(figsize = (15, 10))
 fig, ax = plt.subplots()
 
+# Ensure the cart stays on screen by setting the x limits accordingly.
 x_max = np.abs(sol.y[0]).max() + cart_width
 
 ax.grid()
@@ -110,37 +107,35 @@ ax.set_xlim(-x_max, x_max)
 ax.set_ylim(-0.1, l + cart_height + 0.1)
 ax.set_aspect("equal", adjustable = "box")
 
-plt.title("Inverted Pendulum on a Cart")
+plt.title("Stabilised Inverted Pendulum on a Cart")
 
-line, = ax.plot([], [], 'k-', lw = 2)
+pendulum, = ax.plot([], [], 'k-', lw = 2)
 cart = plt.Rectangle((0, 0), cart_width, cart_height, fc = "blue")
 
 ax.add_patch(cart)
 
+# Initialises the cart and pendulum
 def init_state():
-    line.set_data([], [])
+    pendulum.set_data([], [])
     cart.set_xy((-cart_width / 2, -cart_height / 2))
 
-    return line, cart
+    return pendulum, cart
 
+# Called each frame to update the animation to the next state.
 def update_state(i):
     cart_x, cart_vel, theta, dtheta = sol.y[:, i]
 
     pendulum_x = cart_x + l * np.sin(theta)
     pendulum_y = l * np.cos(theta)
 
-    line.set_data([cart_x, pendulum_x], [cart_height / 2, pendulum_y])
+    pendulum.set_data([cart_x, pendulum_x], [cart_height / 2, pendulum_y])
     cart.set_xy((cart_x - cart_width / 2, -cart_height / 2))
 
-    return line, cart
-
-print("AAAA", len(t_span), 1000 * (t_span[1] - t_span[0]))
+    return pendulum, cart
 
 anim = animation.FuncAnimation(
     fig, update_state, frames = len(t_eval), #init_func = init_state,
     interval = (t_span[1] - t_span[0]), blit = True
 )
-
-# anim.save(filename = "C://Users/Ruben/Documents/programming/py/chaos_theory/pendulum.gif", writer = animation.PillowWriter(fps = 30))
 
 plt.show()
