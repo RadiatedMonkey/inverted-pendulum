@@ -6,11 +6,11 @@ from scipy.integrate import solve_ivp
 from scipy.optimize._numdiff import approx_derivative
 
 M = 5
-m = 2
+m = 1
 l = 1
 F = 0
 g = 9.81
-x0 = [0, 0, 0.5, 0]                   # Initial conditions
+x0 = [0, 0, np.pi / 2, 0]                   # Initial conditions
 equi_x0 = np.array([0, 0, 0, 0])    # Equilibrium point to linearize around
 
 # These are the eigenvalues we want the system to have (multiplied by -1).
@@ -19,20 +19,20 @@ e2 = 3
 e3 = 2 
 e4 = 1
 
-t_span = (0, 15)
+t_span = (0, 5)
 t_eval = np.linspace(*t_span, 500)
 
 def system(t, X, F = 0):
     x, v, theta, omega = X
 
     A = np.array([
-        [(M + m) / (m * l), np.cos(theta)],
-        [np.cos(theta), l]
+        [(M + m) / (m * l), -np.cos(theta)],
+        [-np.cos(theta), l]
     ])
     
     b = np.array([
-        F - (omega ** 2) * np.sin(theta),
-        -g * np.sin(theta)
+        F + (omega ** 2) * np.sin(theta),
+        g * np.sin(theta)
     ])
     
     dt = np.linalg.solve(A, b)
@@ -159,10 +159,10 @@ ax.set_aspect("equal", adjustable = "box")
 
 plt.title("Pendulum on a Cart")
 
-pendulum1, = ax.plot([], [], 'k-', lw = 2)
-cart1 = plt.Rectangle((0, 0), cart_width, cart_height, fc = "blue", label = "Nonlinear")
-# text1 = ax.text(0.05, 0.9, "", transform = ax.transAxes)
-bob1 = plt.Circle((0, 0), 0.05)
+pendulum1, = ax.plot([], [], 'k-', lw = 2, alpha = 0.5)
+cart1 = plt.Rectangle((0, 0), cart_width, cart_height, fc = "red", alpha = 0.5, label = "Nonlinear")
+# text2 = ax.text(0.05, 0.9, "", transform = ax.transAxes)
+bob1 = plt.Circle((0, 0), 0.05, alpha = 0.5, color = "red")
 trace1, = ax.plot([], [], 'r--', lw = 1)
 
 ax.add_patch(cart1)
@@ -170,11 +170,11 @@ ax.add_patch(bob1)
 
 trace1_x, trace1_y = [], []
 
-pendulum2, = ax.plot([], [], 'k-', lw = 2, alpha = 0.5)
-cart2 = plt.Rectangle((0, 0), cart_width, cart_height, fc = "red", alpha = 0.5, label = "Linear")
-# text2 = ax.text(0.05, 0.9, "", transform = ax.transAxes)
-bob2 = plt.Circle((0, 0), 0.05, alpha = 0.5)
-trace2, = ax.plot([], [], 'r--', lw = 1)
+pendulum2, = ax.plot([], [], 'k-', lw = 2)
+cart2 = plt.Rectangle((0, 0), cart_width, cart_height, fc = "blue", label = "Linear")
+# text1 = ax.text(0.05, 0.9, "", transform = ax.transAxes)
+bob2 = plt.Circle((0, 0), 0.05, color = "blue")
+trace2, = ax.plot([], [], 'b--', lw = 1)
 
 ax.add_patch(cart2)
 ax.add_patch(bob2)
@@ -214,7 +214,7 @@ def update_state(i):
     x2 = -x2
 
     pendulum1_x = x1 + l * np.sin(theta1)
-    pendulum1_y = -l * np.cos(theta1)
+    pendulum1_y = l * np.cos(theta1)
 
     trace1_x.append(pendulum1_x)
     trace1_y.append(pendulum1_y)
@@ -227,7 +227,7 @@ def update_state(i):
     #################################################################
 
     pendulum2_x = x2 + l * np.sin(theta2)
-    pendulum2_y = -l * np.cos(theta2)
+    pendulum2_y = l * np.cos(theta2)
 
     trace2_x.append(pendulum2_x)
     trace2_y.append(pendulum2_y)
