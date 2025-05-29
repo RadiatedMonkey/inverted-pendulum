@@ -10,7 +10,7 @@ m = 2
 l = 1
 F = 0
 g = 9.81
-x0 = [0, 0, np.pi - 0.01, 0]                   # Initial conditions
+x0 = [0, 0, 0.5, 0]                   # Initial conditions
 equi_x0 = np.array([0, 0, 0, 0])    # Equilibrium point to linearize around
 
 # These are the eigenvalues we want the system to have (multiplied by -1).
@@ -19,22 +19,19 @@ e2 = 3
 e3 = 2 
 e4 = 1
 
-t_span = (0, 5)
+t_span = (0, 15)
 t_eval = np.linspace(*t_span, 500)
 
-def system(t, X, u):
-    if isinstance(u, (np.ndarray, list)) and np.size(u) == 1:
-        u = np.ravel(u)[0]
-
+def system(t, X, F = 0):
     x, v, theta, omega = X
-    
+
     A = np.array([
         [(M + m) / (m * l), np.cos(theta)],
         [np.cos(theta), l]
     ])
     
     b = np.array([
-        u - (omega ** 2) * np.sin(theta),
+        F - (omega ** 2) * np.sin(theta),
         -g * np.sin(theta)
     ])
     
@@ -43,24 +40,30 @@ def system(t, X, u):
     x_dot = v
     theta_dot = omega
     v_dot, omega_dot = dt
-    
+
     return x_dot, v_dot, theta_dot, omega_dot
 
 def A_wrapper(X):
     return system(0, X, 0)
 
 def B_wrapper(u):
-    return system(0, equi_x0, u)
+    F, = u
+    return system(0, equi_x0, F)
 
 A_jac = approx_derivative(A_wrapper, equi_x0)
 B_jac = approx_derivative(B_wrapper, 0)
 
+# Determine the characteristic polynomial of A_jac
+A_coeffs = np.poly(A_jac)
+
+print(f"A_coeffs = {A_coeffs}")
+
 # These are the q_n vectors used to create the similarity transformation.
 qs = np.zeros(4, dtype = object)
 qs[3] = B_jac
-qs[2] = A_jac @ B_jac
-qs[1] = (A_jac @ A_jac) @ B_jac - (M + m) * g / (M * l) * B_jac
-qs[0] = (A_jac @ A_jac @ A_jac) @ B_jac - (M + m) * g / (M * l) * (A_jac @ B_jac)
+qs[2] = A_jac @ B_jac + A_coeffs[1] * B_jac
+qs[1] = (A_jac @ A_jac) @ B_jac - A_coeffs[1] * (A_jac @ B_jac) + A_coeffs[2] * B_jac
+qs[0] = (A_jac @ A_jac @ A_jac) @ B_jac + A_coeffs[1] * (A_jac @ A_jac) @ B_jac + A_coeffs[2] * A_jac @ B_jac + A_coeffs[3] * B_jac
 
 # Create the matrices for the similarity transformation.
 T_inv = np.transpose(np.array([qs[0], qs[1], qs[2], qs[3]]))
@@ -99,10 +102,10 @@ def linear_system(t, X):
 def controlled_system(t, X):
     return A_controlled @ X
 
-# sol = solve_ivp(system, t_span, x0, t_eval = t_eval)
-# sol = solve_ivp(system, t_span, x0, t_eval = t_eval)
-linear_sol = solve_ivp(linear_system, t_span, x0, t_eval = t_eval)
-sol = solve_ivp(controlled_system, t_span, x0, t_eval = t_eval)
+sol = solve_ivp(system, t_span, x0, t_eval = t_eval)
+# linear_sol = solve_ivp(linear_system, t_span, x0, t_eval = t_eval)
+linear_sol = solve_ivp(controlled_system, t_span, x0, t_eval = t_eval)
+# sol = solve_ivp(controlled_system, t_span, x0, t_eval = t_eval)
 
 errors = np.abs(sol.y - linear_sol.y)
 
@@ -154,52 +157,93 @@ ax.set_xlim(-3, 3)
 ax.set_ylim(-(l + cart_height + 0.1), l + cart_height + 0.1)
 ax.set_aspect("equal", adjustable = "box")
 
-plt.title("Stabilised Inverted Pendulum on a Cart")
+plt.title("Pendulum on a Cart")
 
-pendulum, = ax.plot([], [], 'k-', lw = 2)
-cart = plt.Rectangle((0, 0), cart_width, cart_height, fc = "blue")
-text = ax.text(0.05, 0.9, "", transform = ax.transAxes)
-bob = plt.Circle((0, 0), 0.05)
-trace, = ax.plot([], [], 'r--', lw = 1)
+pendulum1, = ax.plot([], [], 'k-', lw = 2)
+cart1 = plt.Rectangle((0, 0), cart_width, cart_height, fc = "blue", label = "Nonlinear")
+# text1 = ax.text(0.05, 0.9, "", transform = ax.transAxes)
+bob1 = plt.Circle((0, 0), 0.05)
+trace1, = ax.plot([], [], 'r--', lw = 1)
+
+ax.add_patch(cart1)
+ax.add_patch(bob1)
+
+trace1_x, trace1_y = [], []
+
+pendulum2, = ax.plot([], [], 'k-', lw = 2, alpha = 0.5)
+cart2 = plt.Rectangle((0, 0), cart_width, cart_height, fc = "red", alpha = 0.5, label = "Linear")
+# text2 = ax.text(0.05, 0.9, "", transform = ax.transAxes)
+bob2 = plt.Circle((0, 0), 0.05, alpha = 0.5)
+trace2, = ax.plot([], [], 'r--', lw = 1)
+
+ax.add_patch(cart2)
+ax.add_patch(bob2)
+
+trace2_x, trace2_y = [], []
 
 ax.plot([-x_max, x_max], [0, 0])
 
-ax.add_patch(cart)
-ax.add_patch(bob)
-
-trace_x, trace_y = [], []
-
 # Initialises the cart and pendulum
 def init_state():
-    trace.set_data([], [])
-    pendulum.set_data([], [])
-    cart.set_center((-cart_width / 2, -cart_height / 2))
+    trace1.set_data([], [])
+    pendulum1.set_data([], [])
+    cart1.set_center((-cart_width / 2, -cart_height / 2))
 
-    return pendulum, cart, bob, trace
+    trace2.set_data([], [])
+    pendulum2.set_data([], [])
+    cart2.set_center((-cart_width / 2, -cart_height / 2))
+
+    return pendulum1, cart1, bob1, trace1, pendulum2, cart2, bob2, trace2
 
 # Called each frame to update the animation to the next state.
 def update_state(i):
-    x, v, theta, omega = sol.y[:, i]
+    if i == 0:
+        trace1_x.clear()
+        trace1_y.clear()
+
+        trace2_x.clear()
+        trace2_y.clear()
+
+    x1, v1, theta1, omega1 = sol.y[:, i]
+    x2, v2, theta2, omega2 = linear_sol.y[:, i]
+
+    print(theta1, theta2)
 
     # x-axis is flipped in the mathematical model
-    x = -x
+    x1 = -x1
+    x2 = -x2
 
-    pendulum_x = x + l * np.sin(theta)
-    pendulum_y = -l * np.cos(theta)
+    pendulum1_x = x1 + l * np.sin(theta1)
+    pendulum1_y = -l * np.cos(theta1)
 
-    trace_x.append(pendulum_x)
-    trace_y.append(pendulum_y)
-    trace.set_data(trace_x, trace_y)
+    trace1_x.append(pendulum1_x)
+    trace1_y.append(pendulum1_y)
+    trace1.set_data(trace1_x, trace1_y)
 
-    if i == len(t_eval) - 1:
-        trace_x.clear()
-        trace_y.clear()
+    pendulum1.set_data([x1, pendulum1_x], [0, pendulum1_y])
+    cart1.set_xy((x1 - cart_width / 2, -cart_height / 2))
+    bob1.set_center([pendulum1_x, pendulum1_y])
 
-    pendulum.set_data([x, pendulum_x], [0, pendulum_y])
-    cart.set_xy((x - cart_width / 2, -cart_height / 2))
-    bob.set_center([pendulum_x, pendulum_y])
+    #################################################################
 
-    return pendulum, cart, text, bob, trace
+    pendulum2_x = x2 + l * np.sin(theta2)
+    pendulum2_y = -l * np.cos(theta2)
+
+    trace2_x.append(pendulum2_x)
+    trace2_y.append(pendulum2_y)
+    trace2.set_data(trace2_x, trace2_y)
+
+    pendulum2.set_data([x2, pendulum2_x], [0, pendulum2_y])
+    cart2.set_xy((x2 - cart_width / 2, -cart_height / 2))
+    bob2.set_center([pendulum2_x, pendulum2_y])
+
+    return pendulum1, cart1, bob1, trace1, pendulum2, cart2, bob2, trace2
+
+legend_elements = [cart1, cart2]
+plt.legend(
+    handles = legend_elements,
+    loc = 'upper left'
+)
 
 anim = animation.FuncAnimation(
     fig, update_state, frames = len(t_eval), #init_func = init_state,
