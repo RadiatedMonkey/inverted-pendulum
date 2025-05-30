@@ -18,7 +18,7 @@ e3 = 2
 e4 = 1
 
 t_span = (0, 5)
-t_eval = np.linspace(*t_span, 500)
+t_eval = np.linspace(*t_span, int(np.ceil(60 * (t_span[1] - t_span[0]))))
 
 def nonlinear_system(t, X, F = 0):
     x, v, theta, omega = X
@@ -53,6 +53,13 @@ x0_up = [0, 0, 0, 0]        # Stationary pendulum pointing downwards
 
 A_jac_down = approx_derivative(A_wrapper, x0_down)      # Linearization around downward equilibrium
 A_jac_up = approx_derivative(A_wrapper, x0_up)          # Linearization around upward equilibrium
+
+down_eigvals = np.linalg.eigvals(A_jac_down)
+up_eigvals = np.linalg.eigvals(A_jac_up)
+
+print(f"Eigenvalues for downward equilibrium are {down_eigvals}")
+print(f"Eigenvalues for upward equilibrium are {up_eigvals}")
+
 # B_jac_down = approx_derivative(B_wrapper, 0, args = [x0_down])
 B_jac_up = approx_derivative(B_wrapper, 0, args = [x0_up])
 
@@ -110,19 +117,25 @@ def plot_errors(linear_system, nonlinear_system, x0):
     nonlinear_sol = solve_ivp(nonlinear_system, t_span, x0, t_eval = t_eval)
     linear_sol = solve_ivp(linear_system, t_span, x0, t_eval = t_eval)
 
-    errors = np.abs(linear_sol.y - nonlinear_sol.y)
+    # errors = np.abs(linear_sol.y - nonlinear_sol.y)
+
+    dtheta = -(x0[2] - np.pi)
+
+    # plt.figure(figsize = (10, 6))
+    # plt.title(f"Error of linearization over time ($\\theta_0 = \\pi - {dtheta}$)")
+
+    # plt.plot(nonlinear_sol.t, np.array([errors[0], errors[2]]).T)
+
+    # plt.xlabel("Time (s)")
+    # plt.ylabel("Error")
+    # plt.legend([
+    #     "$\\Delta x$",
+    #     "$\\Delta \\theta$",
+    # ])
 
     plt.figure(figsize = (10, 6))
-    plt.plot(nonlinear_sol.t, np.array([errors[0], errors[2]]).T)
 
-    plt.xlabel("Time (s)")
-    plt.ylabel("Error")
-    plt.legend([
-        "$\\Delta x$",
-        "$\\Delta \\theta$",
-    ])
-
-    plt.figure(figsize = (10, 6))
+    plt.title(f"Trajectories of linear and nonlinear systems ($\\theta_0 = \\pi - {dtheta}$)")
 
     plt.plot(nonlinear_sol.t, nonlinear_sol.y[0], '-.', color = 'red')
     plt.plot(linear_sol.t, linear_sol.y[0], color = 'red')
@@ -143,6 +156,25 @@ def plot_errors(linear_system, nonlinear_system, x0):
 
 def visualise(system, x0):
     sol = solve_ivp(system, t_span, x0, t_eval = t_eval)
+    sol.y[0] = -sol.y[0]
+    sol.y[1] = -sol.y[1]
+
+    plt.figure(figsize = (10, 6))
+
+    plt.title(f"Trajectory of controlled linearized systems ($\\theta_0 = {x0[2]}$)")
+
+    plt.plot(sol.t, sol.y.T)
+
+    plt.xlabel("Time (s)")
+    plt.ylabel("States")
+    plt.legend([
+        "x (cart position)",
+        "v (cart velocity)",
+        "$\\theta$ (angle)",
+        "$\\omega$ (angular velocity)" 
+    ])
+
+    plt.show()
 
     cart_width = 0.5
     cart_height = 0.3
@@ -180,9 +212,6 @@ def visualise(system, x0):
 
         x, v, theta, omega = sol.y[:, i]
 
-        # x-axis is flipped in the mathematical model
-        # x1 = -x1
-
         pendulum_x = x + l * np.sin(theta)
         pendulum_y = l * np.cos(theta)
 
@@ -196,18 +225,21 @@ def visualise(system, x0):
 
         return pendulum, cart, bob, trace
     
+    fps = len(t_eval) / (t_span[1] - t_span[0])
+    print(f"Animation running at {fps} fps")
+
     anim = animation.FuncAnimation(
         fig, update_state, frames = len(t_eval), #init_func = init_state,
-        interval = (t_span[1] - t_span[0]), blit = True
+        interval = 1000 / fps, blit = True
     )
 
     plt.show()
 
-x0_down[2] -= 0.5
-x0_up[2] -= 0.1
-
+x0_down[2] -= 0.25
 plot_errors(linear_system, nonlinear_system, x0_down)
-visualise(linear_system, x0_down)
-visualise(nonlinear_system, x0_down)
 
+x0_down[2] -= 0.25
+plot_errors(linear_system, nonlinear_system, x0_down)
+
+x0_up[2] -= 0.25
 visualise(controlled_system, x0_up)
