@@ -9,9 +9,7 @@ M = 5
 m = 1
 l = 1
 F = 0
-g = 9.81
-x0 = [0, 0, np.pi / 2, 0]                   # Initial conditions
-equi_x0 = np.array([0, 0, 0, 0])    # Equilibrium point to linearize around
+g = 9.813                  # Initial conditions
 
 # These are the eigenvalues we want the system to have (multiplied by -1).
 e1 = 4
@@ -22,7 +20,7 @@ e4 = 1
 t_span = (0, 5)
 t_eval = np.linspace(*t_span, 500)
 
-def system(t, X, F = 0):
+def nonlinear_system(t, X, F = 0):
     x, v, theta, omega = X
 
     A = np.array([
@@ -44,34 +42,37 @@ def system(t, X, F = 0):
     return x_dot, v_dot, theta_dot, omega_dot
 
 def A_wrapper(X):
-    return system(0, X, 0)
+    return nonlinear_system(0, X, 0)
 
-def B_wrapper(u):
+def B_wrapper(u, x0):
     F, = u
-    return system(0, equi_x0, F)
+    return nonlinear_system(0, x0, F)
 
-A_jac = approx_derivative(A_wrapper, equi_x0)
-B_jac = approx_derivative(B_wrapper, 0)
+x0_down = [0, 0, np.pi, 0]  # Stationary pendulum pointing upwards
+x0_up = [0, 0, 0, 0]        # Stationary pendulum pointing downwards
+
+A_jac_down = approx_derivative(A_wrapper, x0_down)      # Linearization around downward equilibrium
+A_jac_up = approx_derivative(A_wrapper, x0_up)          # Linearization around upward equilibrium
+# B_jac_down = approx_derivative(B_wrapper, 0, args = [x0_down])
+B_jac_up = approx_derivative(B_wrapper, 0, args = [x0_up])
 
 # Determine the characteristic polynomial of A_jac
-A_coeffs = np.poly(A_jac)
-
-print(f"A_coeffs = {A_coeffs}")
+A_coeffs = np.poly(A_jac_up)
 
 # These are the q_n vectors used to create the similarity transformation.
 qs = np.zeros(4, dtype = object)
-qs[3] = B_jac
-qs[2] = A_jac @ B_jac + A_coeffs[1] * B_jac
-qs[1] = (A_jac @ A_jac) @ B_jac - A_coeffs[1] * (A_jac @ B_jac) + A_coeffs[2] * B_jac
-qs[0] = (A_jac @ A_jac @ A_jac) @ B_jac + A_coeffs[1] * (A_jac @ A_jac) @ B_jac + A_coeffs[2] * A_jac @ B_jac + A_coeffs[3] * B_jac
+qs[3] = B_jac_up
+qs[2] = A_jac_up @ B_jac_up + A_coeffs[1] * B_jac_up
+qs[1] = (A_jac_up @ A_jac_up) @ B_jac_up - A_coeffs[1] * (A_jac_up @ B_jac_up) + A_coeffs[2] * B_jac_up
+qs[0] = (A_jac_up @ A_jac_up @ A_jac_up) @ B_jac_up + A_coeffs[1] * (A_jac_up @ A_jac_up) @ B_jac_up + A_coeffs[2] * A_jac_up @ B_jac_up + A_coeffs[3] * B_jac_up
 
 # Create the matrices for the similarity transformation.
 T_inv = np.transpose(np.array([qs[0], qs[1], qs[2], qs[3]]))
 T = np.linalg.inv(T_inv)
 
 # The controllable canonical forms of A and B.
-A_canon = (T @ A_jac @ T_inv)[0]
-B_canon = np.ravel((T @ B_jac)[0])
+A_canon = (T @ A_jac_up @ T_inv)[0]
+B_canon = np.ravel((T @ B_jac_up)[0])
 
 print(f"The controllable canonical form of A is \n{A_canon}\nand B is {B_canon}")
 
@@ -96,158 +97,117 @@ F_canon = np.array([fs[0], fs[1], fs[2], fs[3]])
 # Determines the full stabilized system by adding the feedback matrix as input.
 A_controlled = (T_inv @ (A_canon + np.outer(B_canon, F_canon)) @ T)[0]
 
+# Defines the dynamics of the linearized system around the downward equilibrium
 def linear_system(t, X):
-    return A_jac @ X 
+    dX = X - [0, 0, np.pi, 0]
+    return A_jac_down @ dX
 
+# Defines the dynamics of the controlled linearized system (around the upward equilibrium)
 def controlled_system(t, X):
     return A_controlled @ X
 
-sol = solve_ivp(system, t_span, x0, t_eval = t_eval)
-# linear_sol = solve_ivp(linear_system, t_span, x0, t_eval = t_eval)
-linear_sol = solve_ivp(controlled_system, t_span, x0, t_eval = t_eval)
-# sol = solve_ivp(controlled_system, t_span, x0, t_eval = t_eval)
+def plot_errors(linear_system, nonlinear_system, x0):
+    nonlinear_sol = solve_ivp(nonlinear_system, t_span, x0, t_eval = t_eval)
+    linear_sol = solve_ivp(linear_system, t_span, x0, t_eval = t_eval)
 
-errors = np.abs(sol.y - linear_sol.y)
+    errors = np.abs(linear_sol.y - nonlinear_sol.y)
 
-plt.figure(figsize = (10, 6))
-plt.plot(sol.t, np.array([errors[0], errors[2]]).T)
+    plt.figure(figsize = (10, 6))
+    plt.plot(nonlinear_sol.t, np.array([errors[0], errors[2]]).T)
 
-plt.xlabel("Time (s)")
-plt.ylabel("Error")
-plt.legend([
-    "$\\Delta x$",
-    # "$\\Delta v$",
-    "$\\Delta \\theta$",
-    # "$\\Delta \\omega$"
-])
+    plt.xlabel("Time (s)")
+    plt.ylabel("Error")
+    plt.legend([
+        "$\\Delta x$",
+        "$\\Delta \\theta$",
+    ])
 
-plt.figure(figsize = (10, 6))
+    plt.figure(figsize = (10, 6))
 
-plt.plot(sol.t, sol.y[0], '-.', color = 'red')
-plt.plot(linear_sol.t, linear_sol.y[0], color = 'red')
+    plt.plot(nonlinear_sol.t, nonlinear_sol.y[0], '-.', color = 'red')
+    plt.plot(linear_sol.t, linear_sol.y[0], color = 'red')
 
-plt.plot(sol.t, sol.y[2], '-.', color = 'green')
-plt.plot(linear_sol.t, linear_sol.y[2], color = 'green')
+    plt.plot(nonlinear_sol.t, nonlinear_sol.y[2] - np.pi, '-.', color = 'green')
+    plt.plot(linear_sol.t, linear_sol.y[2] - np.pi, color = 'green')
 
-# plt.plot(forces)
-plt.xlabel("Time (s)")
-plt.ylabel("States")
-plt.legend([
-    "x (cart position)", 
-    "linear x (cart position)",
-    # "$\\frac{dx}{dt}$ (cart velocity)", 
-    "$\\theta$ (angle)", 
-    # "$\\frac{d\\theta}{dt}$ (angular velocity)",
-    # "linear $\\frac{dx}{dt}$ (cart velocity)", 
-    "linear $\\theta$ (angle)", 
-    # "linear $\\frac{d\\theta}{dt}$ (angular velocity)"
-])
+    plt.xlabel("Time (s)")
+    plt.ylabel("States")
+    plt.legend([
+        "x (cart position)", 
+        "linear x (cart position)",
+        "$\\theta$ (angle)", 
+        "linear $\\theta$ (angle)", 
+    ])
 
-cart_width = 0.5
-cart_height = 0.3
+    plt.show()
 
-fig, ax = plt.subplots()
+def visualise(system, x0):
+    sol = solve_ivp(system, t_span, x0, t_eval = t_eval)
 
-# Ensure the cart stays on screen by setting the x limits accordingly.
-# x_max = np.abs(sol.y[0]).max() + cart_width
-x_max = 5
+    cart_width = 0.5
+    cart_height = 0.3
 
-ax.grid()
-ax.set_xlim(-3, 3)
-ax.set_ylim(-(l + cart_height + 0.1), l + cart_height + 0.1)
-ax.set_aspect("equal", adjustable = "box")
+    fig, ax = plt.subplots()
 
-plt.title("Pendulum on a Cart")
+    # Ensure the cart stays on screen by setting the x limits accordingly.
+    # x_max = np.abs(sol.y[0]).max() + cart_width
+    x_max = 5
 
-pendulum1, = ax.plot([], [], 'k-', lw = 2, alpha = 0.5)
-cart1 = plt.Rectangle((0, 0), cart_width, cart_height, fc = "red", alpha = 0.5, label = "Nonlinear")
-# text2 = ax.text(0.05, 0.9, "", transform = ax.transAxes)
-bob1 = plt.Circle((0, 0), 0.05, alpha = 0.5, color = "red")
-trace1, = ax.plot([], [], 'r--', lw = 1)
+    ax.grid()
+    ax.set_xlim(-3, 3)
+    ax.set_ylim(-(l + cart_height + 0.1), l + cart_height + 0.1)
+    ax.set_aspect("equal", adjustable = "box")
 
-ax.add_patch(cart1)
-ax.add_patch(bob1)
+    plt.title("Controlled Linearized Inverted Pendulum on a Cart")
 
-trace1_x, trace1_y = [], []
+    pendulum, = ax.plot([], [], 'k-', lw = 2)
+    cart = plt.Rectangle((0, 0), cart_width, cart_height, fc = "red", label = "Nonlinear")
+    bob = plt.Circle((0, 0), 0.05, color = "red")
+    trace, = ax.plot([], [], 'r--', lw = 1)
 
-pendulum2, = ax.plot([], [], 'k-', lw = 2)
-cart2 = plt.Rectangle((0, 0), cart_width, cart_height, fc = "blue", label = "Linear")
-# text1 = ax.text(0.05, 0.9, "", transform = ax.transAxes)
-bob2 = plt.Circle((0, 0), 0.05, color = "blue")
-trace2, = ax.plot([], [], 'b--', lw = 1)
+    ax.add_patch(cart)
+    ax.add_patch(bob)
 
-ax.add_patch(cart2)
-ax.add_patch(bob2)
+    trace_x, trace_y = [], []
 
-trace2_x, trace2_y = [], []
+    ax.plot([-x_max, x_max], [0, 0])
 
-ax.plot([-x_max, x_max], [0, 0])
+    # Called each frame to update the animation to the next state.
+    def update_state(i):
+        if i == 0:
+            trace_x.clear()
+            trace_y.clear()
 
-# Initialises the cart and pendulum
-def init_state():
-    trace1.set_data([], [])
-    pendulum1.set_data([], [])
-    cart1.set_center((-cart_width / 2, -cart_height / 2))
+        x, v, theta, omega = sol.y[:, i]
 
-    trace2.set_data([], [])
-    pendulum2.set_data([], [])
-    cart2.set_center((-cart_width / 2, -cart_height / 2))
+        # x-axis is flipped in the mathematical model
+        # x1 = -x1
 
-    return pendulum1, cart1, bob1, trace1, pendulum2, cart2, bob2, trace2
+        pendulum_x = x + l * np.sin(theta)
+        pendulum_y = l * np.cos(theta)
 
-# Called each frame to update the animation to the next state.
-def update_state(i):
-    if i == 0:
-        trace1_x.clear()
-        trace1_y.clear()
+        trace_x.append(pendulum_x)
+        trace_y.append(pendulum_y)
+        trace.set_data(trace_x, trace_y)
 
-        trace2_x.clear()
-        trace2_y.clear()
+        pendulum.set_data([x, pendulum_x], [0, pendulum_y])
+        cart.set_xy((x - cart_width / 2, -cart_height / 2))
+        bob.set_center([pendulum_x, pendulum_y])
 
-    x1, v1, theta1, omega1 = sol.y[:, i]
-    x2, v2, theta2, omega2 = linear_sol.y[:, i]
+        return pendulum, cart, bob, trace
+    
+    anim = animation.FuncAnimation(
+        fig, update_state, frames = len(t_eval), #init_func = init_state,
+        interval = (t_span[1] - t_span[0]), blit = True
+    )
 
-    print(theta1, theta2)
+    plt.show()
 
-    # x-axis is flipped in the mathematical model
-    x1 = -x1
-    x2 = -x2
+x0_down[2] -= 0.5
+x0_up[2] -= 0.1
 
-    pendulum1_x = x1 + l * np.sin(theta1)
-    pendulum1_y = l * np.cos(theta1)
+plot_errors(linear_system, nonlinear_system, x0_down)
+visualise(linear_system, x0_down)
+visualise(nonlinear_system, x0_down)
 
-    trace1_x.append(pendulum1_x)
-    trace1_y.append(pendulum1_y)
-    trace1.set_data(trace1_x, trace1_y)
-
-    pendulum1.set_data([x1, pendulum1_x], [0, pendulum1_y])
-    cart1.set_xy((x1 - cart_width / 2, -cart_height / 2))
-    bob1.set_center([pendulum1_x, pendulum1_y])
-
-    #################################################################
-
-    pendulum2_x = x2 + l * np.sin(theta2)
-    pendulum2_y = l * np.cos(theta2)
-
-    trace2_x.append(pendulum2_x)
-    trace2_y.append(pendulum2_y)
-    trace2.set_data(trace2_x, trace2_y)
-
-    pendulum2.set_data([x2, pendulum2_x], [0, pendulum2_y])
-    cart2.set_xy((x2 - cart_width / 2, -cart_height / 2))
-    bob2.set_center([pendulum2_x, pendulum2_y])
-
-    return pendulum1, cart1, bob1, trace1, pendulum2, cart2, bob2, trace2
-
-legend_elements = [cart1, cart2]
-plt.legend(
-    handles = legend_elements,
-    loc = 'upper left'
-)
-
-anim = animation.FuncAnimation(
-    fig, update_state, frames = len(t_eval), #init_func = init_state,
-    interval = (t_span[1] - t_span[0]), blit = True
-)
-
-plt.show()
+visualise(controlled_system, x0_up)
